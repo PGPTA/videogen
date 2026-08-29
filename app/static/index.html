@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Car 360</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#050505;color:#f7f7f8;font-family:Inter,system-ui,-apple-system,sans-serif}
+main{max-width:1120px;margin:auto;padding:48px 22px 80px}
+.kicker{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#686b73;margin-bottom:12px}
+h1{font-size:clamp(42px,7vw,78px);letter-spacing:-.06em;line-height:.92;margin:0}
+.lead{font-size:17px;color:#999ca4;max-width:760px;line-height:1.55;margin:20px 0 30px}
+.views{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{border:1px solid #25272d;border-radius:18px;background:#0d0e10;padding:10px;cursor:pointer}
+.card .title{display:flex;justify-content:space-between;padding:5px 4px 10px;font-weight:800}
+.card .deg{color:#666;font-size:12px;font-weight:500}
+.box{aspect-ratio:1;background:#000;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#555;font-size:38px;overflow:hidden}
+.box img{width:100%;height:100%;object-fit:contain;display:none}
+input[type=file]{position:absolute;opacity:0;pointer-events:none}
+.controls{display:flex;gap:12px;margin-top:16px}.field{flex:1;background:#0d0e10;border:1px solid #25272d;border-radius:14px;padding:12px}
+.field label{display:block;color:#858890;font-size:12px;margin-bottom:7px}.field input{width:100%;background:#050505;border:1px solid #292c31;border-radius:10px;color:#fff;padding:12px;font-size:16px}
+button{width:100%;border:0;border-radius:15px;background:#f7f7f8;color:#080808;padding:18px;font-size:17px;font-weight:900;margin-top:16px;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status,.result{display:none;margin-top:24px}.bar{height:10px;background:#1a1c20;border-radius:99px;overflow:hidden}.fill{height:100%;background:#fff;width:0;transition:width .3s}
+.statusrow{display:flex;justify-content:space-between;margin-top:10px;color:#a1a4ac;font-size:14px;gap:15px}
+.result{border:1px solid #25272d;background:#0d0e10;border-radius:18px;padding:14px}
+video{width:100%;border-radius:12px;background:#000;max-height:640px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.actions a{background:#fff;color:#000;text-decoration:none;border-radius:10px;padding:11px 14px;font-weight:850}.actions a.alt{background:#1b1d21;color:#ddd}
+.note{color:#6f727a;font-size:13px;line-height:1.55;margin-top:20px}
+@media(max-width:800px){.views{grid-template-columns:repeat(2,1fr)}.controls{flex-direction:column}}
+</style>
+</head>
+<body><main>
+<div class="kicker">Wan2.2 • Multi-frame interpolation</div>
+<h1>Car 360</h1>
+<p class="lead">Upload four views of the same car. The model is forced through the actual front, left, rear and right images, then back to the front to create one complete orbit.</p>
+
+<form id="form">
+<div class="views">
+<label class="card"><div class="title"><span>Front</span><span class="deg">0° + 360°</span></div><div class="box"><span>＋</span><img></div><input required type="file" name="front" accept="image/*"></label>
+<label class="card"><div class="title"><span>Left</span><span class="deg">90°</span></div><div class="box"><span>＋</span><img></div><input required type="file" name="left" accept="image/*"></label>
+<label class="card"><div class="title"><span>Rear</span><span class="deg">180°</span></div><div class="box"><span>＋</span><img></div><input required type="file" name="rear" accept="image/*"></label>
+<label class="card"><div class="title"><span>Right</span><span class="deg">270°</span></div><div class="box"><span>＋</span><img></div><input required type="file" name="right" accept="image/*"></label>
+</div>
+<div class="controls">
+<div class="field"><label>Seed (-1 = random)</label><input type="number" name="seed" value="-1"></div>
+<div class="field"><label>Generation steps</label><input type="number" min="8" max="40" name="steps" value="20"></div>
+</div>
+<button id="go">Generate 360 video</button>
+</form>
+
+<section class="status" id="status">
+<div class="bar"><div class="fill" id="fill"></div></div>
+<div class="statusrow"><span id="msg">Starting…</span><span><b id="pct">0%</b> · <span id="elapsed">0:00</span></span></div>
+</section>
+
+<section class="result" id="result">
+<video id="video" controls loop playsinline></video>
+<div class="actions">
+<a id="download" download>Download 15 sec MP4</a>
+<a id="raw" class="alt" download>Raw WAN video</a>
+<a id="log" class="alt" target="_blank">Generation log</a>
+</div>
+</section>
+
+<p class="note">Best on a RunPod A100 80GB or H100 80GB. The first launch downloads the Wan2.2 I2V A14B weights and the Morphic multi-frame LoRA to <code>/workspace/models</code>, so attach persistent storage if you do not want to download them again.</p>
+
+<script>
+document.querySelectorAll('input[type=file]').forEach(i=>{
+ i.addEventListener('change',()=>{
+  const f=i.files?.[0]; if(!f)return;
+  const c=i.closest('.card'),img=c.querySelector('img'),sp=c.querySelector('.box span');
+  img.src=URL.createObjectURL(f);img.style.display='block';sp.style.display='none';
+ });
+});
+
+const form=document.querySelector('#form'),go=document.querySelector('#go'),
+status=document.querySelector('#status'),fill=document.querySelector('#fill'),
+msg=document.querySelector('#msg'),pct=document.querySelector('#pct'),elapsed=document.querySelector('#elapsed'),
+result=document.querySelector('#result'),video=document.querySelector('#video'),
+download=document.querySelector('#download'),raw=document.querySelector('#raw'),log=document.querySelector('#log');
+
+form.addEventListener('submit', async e=>{
+ e.preventDefault(); go.disabled=true; result.style.display='none';status.style.display='block';
+ msg.textContent='Uploading…';fill.style.width='2%';pct.textContent='2%';
+
+ try{
+  const r=await fetch('/api/generate',{method:'POST',body:new FormData(form)});
+  const d=await r.json();
+  if(!r.ok) throw Error(d.detail||'Could not start');
+  const id=d.job_id;
+
+  const timer=setInterval(async()=>{
+   const rr=await fetch('/api/jobs/'+id);
+   const j=await rr.json();
+   const p=Number(j.progress||0);
+   fill.style.width=p+'%';pct.textContent=p+'%';msg.textContent=j.message||j.status;
+   const s=Number(j.elapsed||0);elapsed.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+
+   if(j.status==='done'){
+    clearInterval(timer);go.disabled=false;
+    video.src=j.video;download.href=j.video;raw.href=j.raw;log.href=j.log;
+    result.style.display='block';video.play().catch(()=>{});
+   }
+   if(j.status==='error'){
+    clearInterval(timer);go.disabled=false;
+    msg.textContent='Error: '+j.message;
+    log.href=j.log||'#'; result.style.display='block'; video.style.display='none';
+   }
+  },2500);
+ }catch(err){
+  go.disabled=false;msg.textContent='Error: '+err.message;
+ }
+});
+</script>
+</main></body></html>
